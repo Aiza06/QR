@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "QR-ATT",
-    "slug": "QR-ATT",
+    "slug": "qr-att",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
@@ -20,7 +20,7 @@
       },
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
-      "package": "com.izzamayd.QRATT"
+      "package": "com.izamd4710.QRATT"
     },
     "web": {
       "output": "static",
@@ -46,9 +46,9 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "8e15a772-aaed-415e-a88a-2bd0039c84f1"
+        "projectId": "82b1be00-ee00-4f6a-a436-e01654f1e0ee"
       }
     },
-    "owner": "izzamayd"
+    "owner": "izzamay"
   }
 }

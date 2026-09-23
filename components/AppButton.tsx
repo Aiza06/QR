@@ -1,18 +1,17 @@
-import Ionicons from '@expo/vector-icons/Ionicons';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import Ionicons from "@expo/vector-icons/Ionicons";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 
-import { COLORS } from '@/constants/colors';
+import { COLORS } from "@/constants/colors";
 
 type Props = {
   title: string;
   icon: keyof typeof Ionicons.glyphMap;
-  theme?: 'primary';
+  theme?: "primary";
   onPress: () => void;
-  disabled?: boolean;
 };
 
-export default function AppButton({ title, icon, theme, onPress, disabled = false }: Props) {
-  if (theme === 'primary') {
+export default function AppButton({ title, icon, theme, onPress }: Props) {
+  if (theme === "primary") {
     return (
       <View
         style={[
@@ -21,13 +20,8 @@ export default function AppButton({ title, icon, theme, onPress, disabled = fals
         ]}
       >
         <Pressable
-          style={[
-            styles.buttonInner,
-            { backgroundColor: COLORS.primary },
-            disabled && styles.buttonDisabled,
-          ]}
+          style={[styles.buttonInner, { backgroundColor: COLORS.primary }]}
           onPress={onPress}
-          disabled={disabled}
         >
           <Ionicons
             name={icon}
@@ -45,11 +39,7 @@ export default function AppButton({ title, icon, theme, onPress, disabled = fals
 
   return (
     <View style={styles.buttonOuter}>
-      <Pressable
-        style={[styles.buttonInner, disabled && styles.buttonDisabled]}
-        onPress={onPress}
-        disabled={disabled}
-      >
+      <Pressable style={styles.buttonInner} onPress={onPress}>
         <Ionicons
           name={icon}
           size={22}
@@ -64,16 +54,16 @@ export default function AppButton({ title, icon, theme, onPress, disabled = fals
 
 const styles = StyleSheet.create({
   buttonOuter: {
-    width: '100%',
+    width: "100%",
     marginBottom: 14,
   },
   buttonInner: {
     borderRadius: 14,
     paddingVertical: 16,
     paddingHorizontal: 20,
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexDirection: 'row',
+    alignItems: "center",
+    justifyContent: "center",
+    flexDirection: "row",
     backgroundColor: COLORS.card,
     shadowColor: COLORS.shadow,
     shadowOffset: { width: 0, height: 2 },
@@ -82,6 +72,5 @@ const styles = StyleSheet.create({
     elevation: 3,
   },
   icon: { paddingRight: 10 },
-  buttonDisabled: { opacity: 0.5 },
-  label: { fontSize: 17, fontWeight: '600', color: COLORS.textPrimary },
+  label: { fontSize: 17, fontWeight: "600", color: COLORS.textPrimary },
 });
