@@ -1,9 +1,11 @@
+import Ionicons from "@expo/vector-icons/Ionicons";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
-  Alert,
+  Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -11,15 +13,21 @@ import {
 } from "react-native";
 
 import AppButton from "@/components/AppButton";
+import ScreenBackground from "@/components/ScreenBackground";
 import { COLORS } from "@/constants/colors";
 import { signOut, useAuth } from "@/lib/auth";
+import { showAlert } from "@/lib/confirm";
 import { getProfile, updateProfile, type Profile } from "@/lib/profiles";
+
+const webInputReset =
+  Platform.OS === "web" ? ({ outlineStyle: "none" } as any) : undefined;
 
 export default function ProfileScreen() {
   const { user, session } = useAuth();
   const [profile, setProfile] = useState<Profile | null>(null);
   const [draftName, setDraftName] = useState("");
   const [editing, setEditing] = useState(false);
+  const [nameFocused, setNameFocused] = useState(false);
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(false);
   const router = useRouter();
@@ -33,9 +41,17 @@ export default function ProfileScreen() {
   const loadProfile = useCallback(async () => {
     if (!user) return;
     const p = await getProfile(user);
+
+    // Administrators go straight to the dashboard. The dashboard performs
+    // its own server-verified role check before showing privileged data.
+    if (p?.role === "admin" && p.is_active !== false) {
+      router.replace("/admin");
+      return;
+    }
+
     setProfile(p);
     setDraftName(p?.full_name ?? "");
-  }, [user]);
+  }, [user, router]);
 
   useFocusEffect(
     useCallback(() => {
@@ -51,7 +67,7 @@ export default function ProfileScreen() {
     });
     setSaving(false);
     if (error) {
-      Alert.alert("Error", error);
+      showAlert("Error", error);
     } else {
       setProfile((prev) =>
         prev ? { ...prev, full_name: draftName.trim() } : prev,
@@ -65,187 +81,380 @@ export default function ProfileScreen() {
     try {
       await signOut();
     } catch (err: any) {
-      Alert.alert("Error", err?.message || "Failed to sign out.");
+      showAlert("Error", err?.message || "Failed to sign out.");
     } finally {
       setLoading(false);
     }
   };
 
+  const avatarInitial = (profile?.full_name?.trim() || profile?.email || "?")
+    .charAt(0)
+    .toUpperCase();
+
+  const isAdmin = profile?.role === "admin";
+  const isTeacher = profile?.role === "teacher";
+  const roleLabel = isAdmin
+    ? "Administrator"
+    : isTeacher
+      ? "Teacher"
+      : "Student";
+  const roleBadgeStyle = isAdmin
+    ? styles.roleBadgeAdmin
+    : isTeacher
+      ? styles.roleBadgeTeacher
+      : styles.roleBadgeStudent;
+  const roleTextStyle = isAdmin
+    ? styles.roleBadgeAdminText
+    : isTeacher
+      ? styles.roleBadgeTeacherText
+      : styles.roleBadgeStudentText;
+
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>My Profile</Text>
+    <ScreenBackground>
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={styles.content}>
+          <Text style={styles.title}>My Profile</Text>
 
-      {!profile ? (
-        <Text style={styles.subtitle}>Loading profile...</Text>
-      ) : (
-        <View style={styles.infoCard}>
-          <View style={styles.badgeRow}>
-            {profile.role === "teacher" ? (
-              <View style={styles.roleBadge}>
-                <Text style={styles.roleBadgeText}>Teacher</Text>
-              </View>
-            ) : (
-              <View style={[styles.roleBadge, styles.roleBadgeStudent]}>
-                <Text style={styles.roleBadgeText}>Student</Text>
-              </View>
-            )}
-          </View>
-
-          <Text style={styles.label}>Name</Text>
-          {editing ? (
-            <View style={styles.nameEditRow}>
-              <TextInput
-                style={styles.input}
-                value={draftName}
-                onChangeText={setDraftName}
-                placeholder="Your name"
-                placeholderTextColor={COLORS.textSecondary}
-                autoFocus
-              />
-              <Pressable
-                style={styles.saveButton}
-                onPress={handleSaveName}
-                disabled={saving}
-              >
-                {saving ? (
-                  <ActivityIndicator size="small" color={COLORS.primary} />
-                ) : (
-                  <Text style={styles.saveButtonText}>Save</Text>
-                )}
-              </Pressable>
+          {!profile ? (
+            <View style={styles.loadingCard}>
+              <ActivityIndicator size="large" color={COLORS.teal} />
+              <Text style={styles.loadingText}>Loading profile...</Text>
             </View>
           ) : (
-            <Pressable onPress={() => setEditing(true)} style={styles.nameRow}>
-              <Text style={styles.value}>
-                {profile.full_name || "Tap to add your name"}
-              </Text>
-              <Text style={styles.editHint}>Edit</Text>
-            </Pressable>
+            <View style={styles.card}>
+              <View style={styles.cardTop}>
+                <View style={styles.avatar}>
+                  <Text style={styles.avatarText}>{avatarInitial}</Text>
+                </View>
+                <View style={[styles.roleBadge, roleBadgeStyle]}>
+                  <Text style={[styles.roleBadgeText, roleTextStyle]}>
+                    {roleLabel}
+                  </Text>
+                </View>
+              </View>
+
+              <View style={styles.divider} />
+
+              <Text style={styles.label}>Name</Text>
+              {editing ? (
+                <View style={styles.nameEditRow}>
+                  <TextInput
+                    style={[
+                      styles.input,
+                      nameFocused && styles.inputFocused,
+                      webInputReset,
+                    ]}
+                    value={draftName}
+                    onChangeText={setDraftName}
+                    onFocus={() => setNameFocused(true)}
+                    onBlur={() => setNameFocused(false)}
+                    placeholder="Your name"
+                    placeholderTextColor={COLORS.textSecondary}
+                    autoFocus
+                  />
+                  <Pressable
+                    accessibilityRole="button"
+                    style={({ pressed }) => [
+                      styles.saveButton,
+                      pressed && styles.saveButtonPressed,
+                      Platform.OS === "web" && styles.webPointer,
+                    ]}
+                    onPress={handleSaveName}
+                    disabled={saving}
+                  >
+                    {saving ? (
+                      <ActivityIndicator
+                        size="small"
+                        color={COLORS.textOnPrimary}
+                      />
+                    ) : (
+                      <Text style={styles.saveButtonText}>Save</Text>
+                    )}
+                  </Pressable>
+                </View>
+              ) : (
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={() => {
+                    setNameFocused(true);
+                    setEditing(true);
+                  }}
+                  style={({ pressed }) => [
+                    styles.nameRow,
+                    pressed && styles.nameRowPressed,
+                    Platform.OS === "web" && styles.webPointer,
+                  ]}
+                >
+                  <Text style={styles.nameValue}>
+                    {profile.full_name || "Tap to add your name"}
+                  </Text>
+                  <View style={styles.editHint}>
+                    <Ionicons
+                      name="pencil-outline"
+                      size={14}
+                      color={COLORS.teal}
+                    />
+                    <Text style={styles.editHintText}>Edit</Text>
+                  </View>
+                </Pressable>
+              )}
+
+              <Text style={styles.label}>Email</Text>
+              <View style={styles.detailRow}>
+                <Ionicons name="mail-outline" size={17} color={COLORS.teal} />
+                <Text style={styles.detailText}>{profile.email}</Text>
+              </View>
+
+              <Text style={styles.label}>User ID</Text>
+              <View style={styles.detailRow}>
+                <Ionicons
+                  name="finger-print-outline"
+                  size={17}
+                  color={COLORS.teal}
+                />
+                <Text style={styles.detailTextSmall}>{profile.id}</Text>
+              </View>
+            </View>
           )}
 
-          <Text style={styles.label}>Email</Text>
-          <Text style={styles.value}>{profile.email}</Text>
-
-          <Text style={styles.label}>User ID</Text>
-          <Text style={styles.valueSmall}>{profile.id}</Text>
+          <View style={styles.signOut}>
+            <AppButton
+              title="Sign Out"
+              icon="log-out-outline"
+              onPress={handleSignOut}
+            />
+          </View>
         </View>
-      )}
-
-      <AppButton
-        title="Sign Out"
-        icon="log-out-outline"
-        onPress={handleSignOut}
-      />
-    </View>
+      </ScrollView>
+    </ScreenBackground>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: COLORS.background,
-    paddingHorizontal: 24,
-    paddingTop: 24,
+  scrollContent: {
+    flexGrow: 1,
+    alignItems: "center",
+    paddingHorizontal: 20,
+    paddingTop: 22,
+    paddingBottom: 28,
+  },
+  content: {
+    width: "100%",
+    maxWidth: 720,
   },
   title: {
-    fontSize: 20,
-    fontWeight: "600",
+    fontSize: 26,
+    lineHeight: 32,
+    fontWeight: "800",
+    letterSpacing: -0.5,
     color: COLORS.textPrimary,
     marginBottom: 16,
   },
-  subtitle: {
+  loadingCard: {
+    alignItems: "center",
+    padding: 28,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: COLORS.tealBorder,
+    backgroundColor: COLORS.card,
+    shadowColor: COLORS.shadow,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.06,
+    shadowRadius: 18,
+    elevation: 2,
+  },
+  loadingText: {
+    marginTop: 12,
     fontSize: 14,
     color: COLORS.textSecondary,
-    marginTop: 16,
   },
-  infoCard: {
+  card: {
+    padding: 20,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: COLORS.tealBorder,
     backgroundColor: COLORS.card,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    padding: 16,
-    marginBottom: 24,
+    shadowColor: COLORS.shadow,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.06,
+    shadowRadius: 18,
+    elevation: 2,
   },
-  badgeRow: {
-    alignItems: "flex-start",
-    marginBottom: 12,
-  },
-  roleBadge: {
-    backgroundColor: COLORS.primary,
-    borderRadius: 999,
-    paddingHorizontal: 12,
-    paddingVertical: 4,
-  },
-  roleBadgeStudent: {
-    backgroundColor: COLORS.surface,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-  },
-  roleBadgeText: {
-    fontSize: 12,
-    fontWeight: "700",
-    color: COLORS.textOnPrimary,
-  },
-  label: {
-    fontSize: 12,
-    fontWeight: "600",
-    color: COLORS.textSecondary,
-    marginBottom: 4,
-    marginTop: 8,
-  },
-  value: {
-    fontSize: 15,
-    color: COLORS.textPrimary,
-    fontWeight: "500",
-  },
-  valueSmall: {
-    fontSize: 11,
-    color: COLORS.textSecondary,
-  },
-  nameRow: {
+  cardTop: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    backgroundColor: COLORS.surface,
-    borderRadius: 10,
+    marginBottom: 4,
+  },
+  avatar: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: COLORS.tealSoft,
     borderWidth: 1,
+    borderColor: COLORS.tealBorder,
+  },
+  avatarText: {
+    fontSize: 26,
+    fontWeight: "800",
+    color: COLORS.teal,
+  },
+  roleBadge: {
+    paddingHorizontal: 11,
+    paddingVertical: 5,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "transparent",
+  },
+  roleBadgeAdmin: {
+    backgroundColor: COLORS.primary,
+    borderColor: COLORS.primary,
+  },
+  roleBadgeTeacher: {
+    backgroundColor: COLORS.accentSoft,
+    borderColor: COLORS.accentSoft,
+  },
+  roleBadgeStudent: {
+    backgroundColor: COLORS.studentSoft,
     borderColor: COLORS.border,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
+  },
+  roleBadgeText: {
+    fontSize: 11.5,
+    fontWeight: "800",
+    letterSpacing: 0.2,
+  },
+  roleBadgeAdminText: {
+    color: COLORS.textOnPrimary,
+  },
+  roleBadgeTeacherText: {
+    color: COLORS.accent,
+  },
+  roleBadgeStudentText: {
+    color: COLORS.studentStrong,
+  },
+  divider: {
+    height: 1,
+    backgroundColor: COLORS.tealBorder,
+    marginTop: 14,
+    marginBottom: 4,
+  },
+  label: {
+    marginTop: 12,
+    marginBottom: 6,
+    fontSize: 12,
+    fontWeight: "700",
+    letterSpacing: 0.2,
+    color: COLORS.textSecondary,
+  },
+  nameRow: {
+    minHeight: 50,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: COLORS.tealBorder,
+    backgroundColor: "#F7FBF9",
+  },
+  nameRowPressed: {
+    backgroundColor: COLORS.tealSoft,
+  },
+  nameValue: {
+    flex: 1,
+    minWidth: 0,
+    fontSize: 15,
+    fontWeight: "600",
+    color: COLORS.textPrimary,
   },
   editHint: {
-    fontSize: 13,
-    fontWeight: "600",
-    color: COLORS.primary,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+  editHintText: {
+    fontSize: 12.5,
+    fontWeight: "700",
+    color: COLORS.teal,
   },
   nameEditRow: {
     flexDirection: "row",
     alignItems: "center",
+    gap: 8,
   },
   input: {
     flex: 1,
-    backgroundColor: COLORS.surface,
-    borderRadius: 10,
+    minWidth: 0,
+    minHeight: 48,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderRadius: 12,
     borderWidth: 1,
-    borderColor: COLORS.border,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
+    borderColor: COLORS.tealBorder,
+    backgroundColor: COLORS.card,
     fontSize: 15,
     color: COLORS.textPrimary,
   },
+  inputFocused: {
+    borderColor: COLORS.teal,
+    shadowColor: COLORS.teal,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.08,
+    shadowRadius: 10,
+  },
   saveButton: {
-    marginLeft: 8,
-    backgroundColor: COLORS.primary,
-    borderRadius: 10,
+    minWidth: 68,
+    minHeight: 48,
     paddingHorizontal: 16,
-    paddingVertical: 10,
     alignItems: "center",
     justifyContent: "center",
-    minWidth: 64,
+    borderRadius: 12,
+    backgroundColor: COLORS.teal,
+  },
+  saveButtonPressed: {
+    opacity: 0.9,
   },
   saveButtonText: {
     fontSize: 14,
-    fontWeight: "700",
+    fontWeight: "800",
     color: COLORS.textOnPrimary,
+  },
+  detailRow: {
+    minHeight: 48,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 9,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: COLORS.tealBorder,
+    backgroundColor: "#F7FBF9",
+  },
+  detailText: {
+    flex: 1,
+    minWidth: 0,
+    fontSize: 14.5,
+    color: COLORS.textPrimary,
+  },
+  detailTextSmall: {
+    flex: 1,
+    minWidth: 0,
+    fontSize: 12.5,
+    lineHeight: 17,
+    color: COLORS.textSecondary,
+  },
+  signOut: {
+    marginTop: 16,
+  },
+  webPointer: {
+    cursor: "pointer",
   },
 });

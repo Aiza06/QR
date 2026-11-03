@@ -1,5 +1,6 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { Pressable, StyleSheet, Text, View } from "react-native";
+import { useState } from "react";
+import { Platform, Pressable, StyleSheet, Text } from "react-native";
 
 import { COLORS } from "@/constants/colors";
 
@@ -11,66 +12,90 @@ type Props = {
 };
 
 export default function AppButton({ title, icon, theme, onPress }: Props) {
-  if (theme === "primary") {
-    return (
-      <View
-        style={[
-          styles.buttonOuter,
-          { borderWidth: 3, borderColor: COLORS.primary, borderRadius: 18 },
-        ]}
-      >
-        <Pressable
-          style={[styles.buttonInner, { backgroundColor: COLORS.primary }]}
-          onPress={onPress}
-        >
-          <Ionicons
-            name={icon}
-            size={22}
-            color={COLORS.textOnPrimary}
-            style={styles.icon}
-          />
-          <Text style={[styles.label, { color: COLORS.textOnPrimary }]}>
-            {title}
-          </Text>
-        </Pressable>
-      </View>
-    );
-  }
+  const [hovered, setHovered] = useState(false);
+  const isPrimary = theme === "primary";
 
   return (
-    <View style={styles.buttonOuter}>
-      <Pressable style={styles.buttonInner} onPress={onPress}>
-        <Ionicons
-          name={icon}
-          size={22}
-          color={COLORS.textSecondary}
-          style={styles.icon}
-        />
-        <Text style={styles.label}>{title}</Text>
-      </Pressable>
-    </View>
+    <Pressable
+      accessibilityRole="button"
+      onPress={onPress}
+      onHoverIn={() => setHovered(true)}
+      onHoverOut={() => setHovered(false)}
+      style={({ pressed }) => [
+        styles.button,
+        isPrimary ? styles.primary : styles.secondary,
+        hovered && (isPrimary ? styles.primaryHover : styles.secondaryHover),
+        pressed && styles.pressed,
+        Platform.OS === "web" && styles.webPointer,
+      ]}
+    >
+      <Ionicons
+        name={icon}
+        size={21}
+        color={isPrimary ? COLORS.textOnPrimary : COLORS.teal}
+        style={styles.icon}
+      />
+      <Text style={[styles.label, isPrimary && styles.primaryLabel]}>
+        {title}
+      </Text>
+    </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
-  buttonOuter: {
+  button: {
     width: "100%",
+    minHeight: 56,
     marginBottom: 14,
-  },
-  buttonInner: {
-    borderRadius: 14,
-    paddingVertical: 16,
     paddingHorizontal: 20,
+    paddingVertical: 15,
+    borderRadius: 16,
+    borderWidth: 1,
+    flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    flexDirection: "row",
-    backgroundColor: COLORS.card,
     shadowColor: COLORS.shadow,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.06,
+    shadowRadius: 14,
+    elevation: 2,
   },
-  icon: { paddingRight: 10 },
-  label: { fontSize: 17, fontWeight: "600", color: COLORS.textPrimary },
+  primary: {
+    backgroundColor: COLORS.teal,
+    borderColor: COLORS.teal,
+    shadowColor: COLORS.teal,
+    shadowOpacity: 0.18,
+    shadowRadius: 18,
+    elevation: 4,
+  },
+  secondary: {
+    backgroundColor: COLORS.card,
+    borderColor: COLORS.tealBorder,
+  },
+  primaryHover: {
+    backgroundColor: COLORS.tealDark,
+    borderColor: COLORS.tealDark,
+  },
+  secondaryHover: {
+    borderColor: COLORS.teal,
+    backgroundColor: "#F8FCFA",
+  },
+  pressed: {
+    opacity: 0.92,
+    transform: [{ scale: 0.995 }],
+  },
+  icon: {
+    paddingRight: 10,
+  },
+  label: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: COLORS.textPrimary,
+  },
+  primaryLabel: {
+    color: COLORS.textOnPrimary,
+  },
+  webPointer: {
+    cursor: "pointer",
+  },
 });

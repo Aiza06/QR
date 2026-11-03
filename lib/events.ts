@@ -11,16 +11,18 @@ export type CloudEvent = {
   id: string;
   event_code: string;
   title: string;
+  description: string | null;
   start_time: string | null;
   end_time: string | null;
   created_by: string | null;
   created_at: string;
+  updated_at?: string;
 };
 
 export async function createEvent(
   event: Event,
   createdBy?: string,
-): Promise<{ error: string | null }> {
+): Promise<{ data: CloudEvent | null; error: string | null }> {
   let teacherId: string | null = createdBy ?? null;
   if (!teacherId) {
     const {
@@ -29,18 +31,25 @@ export async function createEvent(
     teacherId = user?.id ?? null;
   }
 
-  const { error } = await supabase.from("events").upsert(
-    {
-      event_code: event.eventId,
-      title: event.title,
-      start_time: event.start || null,
-      end_time: event.end || null,
-      created_by: teacherId ?? null,
-    },
-    { onConflict: "event_code" },
-  );
+  const { data, error } = await supabase
+    .from("events")
+    .upsert(
+      {
+        event_code: event.eventId,
+        title: event.title,
+        start_time: event.start || null,
+        end_time: event.end || null,
+        created_by: teacherId ?? null,
+      },
+      { onConflict: "event_code" },
+    )
+    .select("*")
+    .single();
 
-  return { error: error?.message ?? null };
+  return {
+    data: (data as CloudEvent | null) ?? null,
+    error: error?.message ?? null,
+  };
 }
 
 export async function getEventsByTeacher(
@@ -71,4 +80,21 @@ export async function getEventByCode(code: string): Promise<CloudEvent | null> {
   }
 
   return data as CloudEvent;
+}
+
+/**
+ * Ask the database for the event's QR token. The SECURITY DEFINER function
+ * only returns it to an administrator or to the teacher who created the event.
+ */
+export async function getEventQrToken(
+  eventId: string,
+): Promise<{ token: string | null; error: string | null }> {
+  const { data, error } = await supabase.rpc("get_event_qr_token", {
+    p_event_id: eventId,
+  });
+
+  return {
+    token: typeof data === "string" ? data : null,
+    error: error?.message ?? null,
+  };
 }

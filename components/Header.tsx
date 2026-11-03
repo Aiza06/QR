@@ -1,4 +1,4 @@
-import { MaterialIcons } from "@expo/vector-icons";
+import Ionicons from "@expo/vector-icons/Ionicons";
 import { StyleSheet, Text, View } from "react-native";
 
 import { COLORS } from "@/constants/colors";
@@ -9,11 +9,7 @@ export default function Header({ title }: Props) {
   return (
     <View style={styles.container}>
       <View style={styles.logoCircle}>
-        <MaterialIcons
-          name="qr-code-scanner"
-          size={36}
-          color={COLORS.primary}
-        />
+        <Ionicons name="qr-code-outline" size={36} color={COLORS.teal} />
       </View>
       <Text style={styles.title}>{title}</Text>
     </View>
@@ -23,20 +19,28 @@ export default function Header({ title }: Props) {
 const styles = StyleSheet.create({
   container: {
     alignItems: "center",
-    paddingVertical: 24,
+    paddingVertical: 20,
   },
   logoCircle: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
-    backgroundColor: COLORS.surface,
+    width: 78,
+    height: 78,
+    borderRadius: 39,
+    backgroundColor: COLORS.tealSoft,
     justifyContent: "center",
     alignItems: "center",
-    marginBottom: 12,
+    marginBottom: 14,
+    shadowColor: COLORS.teal,
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.1,
+    shadowRadius: 20,
+    elevation: 3,
   },
   title: {
-    fontSize: 24,
-    fontWeight: "700",
+    fontSize: 30,
+    lineHeight: 38,
+    fontWeight: "800",
+    letterSpacing: -0.6,
     color: COLORS.textPrimary,
+    textAlign: "center",
   },
 });

@@ -2,24 +2,50 @@ import type { User } from "@supabase/supabase-js";
 
 import { supabase } from "./supabase";
 
-export type Role = "student" | "teacher";
+export type Role = "student" | "teacher" | "admin";
 
 export type Profile = {
   id: string;
   email: string;
   full_name: string | null;
   role: Role;
+  is_active: boolean;
+  student_number: string | null;
+  employee_number: string | null;
+  grade_level: string | null;
+  section: string | null;
+  department: string | null;
+  phone: string | null;
+  created_at?: string;
+  updated_at?: string;
 };
+
+function safeSignUpRole(role: unknown): "student" | "teacher" {
+  return role === "teacher" ? "teacher" : "student";
+}
 
 export function profileFromUser(user: User): Profile {
   return {
     id: user.id,
     email: user.email ?? "",
     full_name: (user.user_metadata?.full_name as string) ?? null,
-    role: (user.user_metadata?.role as Role) ?? "student",
+    role: safeSignUpRole(user.user_metadata?.role),
+    is_active: true,
+    student_number: null,
+    employee_number: null,
+    grade_level: null,
+    section: null,
+    department: null,
+    phone: null,
   };
 }
 
+/**
+ * Make sure a profile row exists after authentication.
+ *
+ * Role and account status are deliberately NOT written here: they are
+ * authoritative database values which only administrators may change.
+ */
 export async function ensureProfile(user: User): Promise<Profile> {
   const profile = profileFromUser(user);
 
@@ -29,9 +55,8 @@ export async function ensureProfile(user: User): Promise<Profile> {
         id: profile.id,
         email: profile.email,
         full_name: profile.full_name,
-        role: profile.role,
       },
-      { onConflict: "id" },
+      { onConflict: "id", ignoreDuplicates: true },
     );
   } catch {
     // Ignore: the in-memory profile still lets the app work.
@@ -41,55 +66,24 @@ export async function ensureProfile(user: User): Promise<Profile> {
 }
 
 export async function getProfile(user: User): Promise<Profile> {
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from("profiles")
-    .select("id, email, full_name, role")
+    .select(
+      "id, email, full_name, role, is_active, student_number, employee_number, grade_level, section, department, phone, created_at, updated_at",
+    )
     .eq("id", user.id)
     .maybeSingle();
 
-  if (!data) {
+  if (error || !data) {
     return ensureProfile(user);
   }
 
-  const stored = data as Profile;
-  const metadata = profileFromUser(user);
-
-  // Old rows (created before registration was fixed) may be missing the
-  // name/role. Merge what the auth user knows back into the row.
-  if (
-    (stored.full_name ?? null) !== metadata.full_name ||
-    stored.role !== metadata.role ||
-    stored.email !== metadata.email
-  ) {
-    const merged: Profile = {
-      id: stored.id,
-      email: metadata.email || stored.email,
-      full_name: metadata.full_name ?? stored.full_name,
-      role: (metadata.role as Role) ?? stored.role,
-    };
-
-    try {
-      await supabase
-        .from("profiles")
-        .update({
-          email: merged.email,
-          full_name: merged.full_name,
-          role: merged.role,
-        })
-        .eq("id", user.id);
-    } catch {
-      // Ignore: the merged profile still displays correctly.
-    }
-
-    return merged;
-  }
-
-  return stored;
+  return data as Profile;
 }
 
 export async function updateProfile(
   userId: string,
-  updates: { full_name?: string; role?: Role },
+  updates: { full_name?: string },
 ): Promise<{ error: string | null }> {
   const { error } = await supabase
     .from("profiles")
@@ -97,4 +91,20 @@ export async function updateProfile(
     .eq("id", userId);
 
   return { error: error?.message ?? null };
+}
+
+export function displayName(
+  profile: Pick<Profile, "full_name" | "email"> | null | undefined,
+) {
+  if (!profile) return "Unknown user";
+  return profile.full_name?.trim() || profile.email || "Unknown user";
+}
+
+export function initials(name: string) {
+  return name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase() ?? "")
+    .join("");
 }

@@ -17,19 +17,15 @@ import {
 import QRCode from "react-native-qrcode-svg";
 
 import AppButton from "@/components/AppButton";
+import ScreenBackground from "@/components/ScreenBackground";
 import { COLORS } from "@/constants/colors";
 import { useAuth } from "@/lib/auth";
-import { createEvent } from "@/lib/events";
+import { createEvent, getEventQrToken } from "@/lib/events";
 import { getProfile, type Role } from "@/lib/profiles";
 import { buildQRPayload } from "@/lib/qr";
 
-function toLocalISO(date: Date) {
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return (
-    `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}` +
-    `T${pad(date.getHours())}:${pad(date.getMinutes())}:00`
-  );
-}
+const webInputReset =
+  Platform.OS === "web" ? ({ outlineStyle: "none" } as any) : undefined;
 
 function formatDateTime(date: Date) {
   const pad = (n: number) => String(n).padStart(2, "0");
@@ -54,6 +50,7 @@ const QUICK_END_OPTIONS = [
 ];
 
 type EditTarget = "start" | "end";
+type FocusedField = "title" | "eventId" | null;
 
 export default function TeacherScreen() {
   const { user } = useAuth();
@@ -69,6 +66,7 @@ export default function TeacherScreen() {
   const [editingPart, setEditingPart] = useState<"date" | "time">("date");
   const [payload, setPayload] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [focusedField, setFocusedField] = useState<FocusedField>(null);
 
   const isAndroid = Platform.OS === "android";
 
@@ -94,26 +92,36 @@ export default function TeacherScreen() {
 
   if (roleLoading) {
     return (
-      <View style={styles.centerContainer}>
-        <ActivityIndicator size="large" color={COLORS.primary} />
-        <Text style={styles.checkingText}>Checking your account...</Text>
-      </View>
+      <ScreenBackground>
+        <View style={styles.centerContainer}>
+          <View style={styles.stateCard}>
+            <ActivityIndicator size="large" color={COLORS.teal} />
+            <Text style={styles.checkingText}>Checking your account...</Text>
+          </View>
+        </View>
+      </ScreenBackground>
     );
   }
 
   if (role !== "teacher") {
     return (
-      <View style={styles.centerContainer}>
-        <Ionicons
-          name="lock-closed-outline"
-          size={40}
-          color={COLORS.textSecondary}
-        />
-        <Text style={styles.lockTitle}>Teachers Only</Text>
-        <Text style={styles.lockSubtitle}>
-          Only teacher accounts can create events.
-        </Text>
-      </View>
+      <ScreenBackground>
+        <View style={styles.centerContainer}>
+          <View style={styles.stateCard}>
+            <View style={styles.stateIcon}>
+              <Ionicons
+                name="lock-closed-outline"
+                size={28}
+                color={COLORS.teal}
+              />
+            </View>
+            <Text style={styles.lockTitle}>Teachers Only</Text>
+            <Text style={styles.lockSubtitle}>
+              Only teacher accounts can create events.
+            </Text>
+          </View>
+        </View>
+      </ScreenBackground>
     );
   }
 
@@ -184,8 +192,8 @@ export default function TeacherScreen() {
     const event = {
       eventId: eventId.trim(),
       title: title.trim(),
-      start: toLocalISO(startDate),
-      end: toLocalISO(endDate),
+      start: startDate.toISOString(),
+      end: endDate.toISOString(),
     };
 
     if (!event.eventId || !event.title) {
@@ -198,98 +206,160 @@ export default function TeacherScreen() {
       return;
     }
 
-    createEvent(event, user?.id).then(({ error }) => {
-      if (error) {
+    createEvent(event, user?.id).then(async ({ data: savedEvent, error }) => {
+      if (error || !savedEvent) {
         setMessage("Could not save the event. Please try again.");
         return;
       }
-      setMessage("Event saved! Scan the QR with the Scan tab to test it.");
-      setPayload(buildQRPayload(event));
+
+      const { token } = await getEventQrToken(savedEvent.id);
+      setMessage(
+        token
+          ? "Event saved! Scan the QR with the Scan tab to test it."
+          : "Event saved, but its secure QR token could not be created. Run the admin setup SQL, then try again.",
+      );
+      setPayload(
+        buildQRPayload({
+          ...event,
+          title: savedEvent.title,
+          start: savedEvent.start_time,
+          end: savedEvent.end_time,
+          token,
+        }),
+      );
     });
   };
 
   return (
-    <ScrollView
-      style={styles.container}
-      contentContainerStyle={styles.content}
-      keyboardShouldPersistTaps="handled"
-    >
-      <Text style={styles.title}>Create Event QR</Text>
-      <Text style={styles.subtitle}>
-        Fill in the event details, then scan the generated QR with the Scan tab.
-      </Text>
-
-      <Text style={styles.label}>Event Title</Text>
-      <TextInput
-        style={styles.input}
-        value={title}
-        onChangeText={setTitle}
-        placeholder="e.g. Founders Day Assembly"
-        placeholderTextColor={COLORS.textSecondary}
-      />
-
-      <Text style={styles.label}>Event Code</Text>
-      <TextInput
-        style={styles.input}
-        value={eventId}
-        onChangeText={setEventId}
-        placeholder="e.g. EVT-2026-0002"
-        placeholderTextColor={COLORS.textSecondary}
-        autoCapitalize="characters"
-      />
-
-      <Text style={styles.label}>Starts</Text>
-      {renderDateTimeField("start")}
-
-      <Text style={styles.label}>Ends</Text>
-      {renderDateTimeField("end")}
-      <View style={styles.chipRow}>
-        {QUICK_END_OPTIONS.map((option) => (
-          <Pressable
-            key={option.label}
-            style={styles.chip}
-            onPress={() => handleQuickEnd(option.ms)}
-          >
-            <Text style={styles.chipText}>{option.label}</Text>
-          </Pressable>
-        ))}
-      </View>
-      <Text style={styles.hint}>
-        Tap a chip to set the end time from start.
-      </Text>
-
-      {message && <Text style={styles.message}>{message}</Text>}
-
-      <AppButton
-        theme="primary"
-        title="Create Event"
-        icon="add-circle-outline"
-        onPress={handleCreateEvent}
-      />
-
-      {editTarget && Platform.OS !== "web" && (
-        <View style={styles.pickerContainer}>
-          <DateTimePicker
-            value={editTarget === "start" ? startDate : endDate}
-            mode={isAndroid ? editingPart : "datetime"}
-            display={isAndroid ? "default" : "spinner"}
-            onChange={onPickerChange}
-          />
-        </View>
-      )}
-
-      {payload && (
-        <View style={styles.resultCard}>
-          <Text style={styles.resultTitle}>
-            Scan this QR code with the Scan tab:
-          </Text>
-          <View style={styles.qrBox}>
-            <QRCode value={payload} size={200} />
+    <ScreenBackground>
+      <ScrollView
+        style={styles.container}
+        contentContainerStyle={styles.scrollContent}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={styles.content}>
+          <View style={styles.intro}>
+            <Text style={styles.title}>Create Event QR</Text>
+            <Text style={styles.subtitle}>
+              Fill in the event details, then scan the generated QR with the
+              Scan tab.
+            </Text>
           </View>
-          <Text style={styles.payloadText}>{payload}</Text>
+
+          <View style={styles.formCard}>
+            <View style={styles.fieldGroup}>
+              <Text style={styles.label}>Event Title</Text>
+              <TextInput
+                style={[
+                  styles.input,
+                  focusedField === "title" && styles.inputFocused,
+                  webInputReset,
+                ]}
+                value={title}
+                onChangeText={setTitle}
+                onFocus={() => setFocusedField("title")}
+                onBlur={() => setFocusedField(null)}
+                placeholder="e.g. Founders Day Assembly"
+                placeholderTextColor={COLORS.textSecondary}
+              />
+            </View>
+
+            <View style={styles.fieldGroup}>
+              <Text style={styles.label}>Event Code</Text>
+              <TextInput
+                style={[
+                  styles.input,
+                  focusedField === "eventId" && styles.inputFocused,
+                  webInputReset,
+                ]}
+                value={eventId}
+                onChangeText={setEventId}
+                onFocus={() => setFocusedField("eventId")}
+                onBlur={() => setFocusedField(null)}
+                placeholder="e.g. EVT-2026-0002"
+                placeholderTextColor={COLORS.textSecondary}
+                autoCapitalize="characters"
+              />
+            </View>
+
+            <View style={styles.fieldGroup}>
+              <Text style={styles.label}>Starts</Text>
+              {renderDateTimeField("start")}
+            </View>
+
+            <View style={styles.fieldGroup}>
+              <Text style={styles.label}>Ends</Text>
+              {renderDateTimeField("end")}
+            </View>
+
+            <View style={styles.chipRow}>
+              {QUICK_END_OPTIONS.map((option) => (
+                <Pressable
+                  key={option.label}
+                  onPress={() => handleQuickEnd(option.ms)}
+                  style={({ pressed }) => [
+                    styles.chip,
+                    pressed && styles.chipPressed,
+                    Platform.OS === "web" && styles.webPointer,
+                  ]}
+                >
+                  <Text style={styles.chipText}>{option.label}</Text>
+                </Pressable>
+              ))}
+            </View>
+            <Text style={styles.hint}>
+              Tap a chip to set the end time from start.
+            </Text>
+
+            {message ? (
+              <View style={styles.messageBox}>
+                <Ionicons
+                  name="information-circle-outline"
+                  size={17}
+                  color={COLORS.teal}
+                />
+                <Text style={styles.message}>{message}</Text>
+              </View>
+            ) : null}
+
+            <View style={styles.submit}>
+              <AppButton
+                theme="primary"
+                title="Create Event"
+                icon="add-circle-outline"
+                onPress={handleCreateEvent}
+              />
+            </View>
+          </View>
+
+          {editTarget && Platform.OS !== "web" ? (
+            <View style={styles.pickerContainer}>
+              <DateTimePicker
+                value={editTarget === "start" ? startDate : endDate}
+                mode={isAndroid ? editingPart : "datetime"}
+                display={isAndroid ? "default" : "spinner"}
+                onChange={onPickerChange}
+              />
+            </View>
+          ) : null}
+
+          {payload ? (
+            <View style={styles.resultCard}>
+              <Text style={styles.resultTitle}>
+                Scan this QR code with the Scan tab:
+              </Text>
+              <View style={styles.qrBox}>
+                <QRCode value={payload} size={200} />
+              </View>
+              <Text style={styles.payloadText} selectable>
+                {payload}
+              </Text>
+            </View>
+          ) : null}
         </View>
-      )}
-    </ScrollView>
+      </ScrollView>
+    </ScreenBackground>
   );
 }
 
@@ -305,10 +375,11 @@ function PickerField({ value, icon, onPress }: PickerFieldProps) {
       style={({ pressed }) => [
         styles.pickerField,
         pressed && styles.pickerFieldPressed,
+        Platform.OS === "web" && styles.webPointer,
       ]}
       onPress={onPress}
     >
-      <Ionicons name={icon} size={20} color={COLORS.primary} />
+      <Ionicons name={icon} size={20} color={COLORS.teal} />
       <Text style={styles.pickerValue}>{value}</Text>
       <Ionicons
         name="calendar-outline"
@@ -328,7 +399,7 @@ type WebDateTimeFieldProps = {
 function WebDateTimeField({ value, icon, onChange }: WebDateTimeFieldProps) {
   return (
     <View style={styles.pickerField}>
-      <Ionicons name={icon} size={20} color={COLORS.primary} />
+      <Ionicons name={icon} size={20} color={COLORS.teal} />
       <input
         type="datetime-local"
         value={toInputDateTimeValue(value)}
@@ -351,6 +422,7 @@ function WebDateTimeField({ value, icon, onChange }: WebDateTimeFieldProps) {
 
 const webInputStyle = {
   flex: 1,
+  minWidth: 0,
   marginLeft: 10,
   marginRight: 10,
   fontSize: 15,
@@ -366,144 +438,240 @@ const webInputStyle = {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: COLORS.background,
   },
   centerContainer: {
     flex: 1,
-    backgroundColor: COLORS.background,
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: 32,
+    padding: 20,
+  },
+  stateCard: {
+    width: "100%",
+    maxWidth: 520,
+    alignItems: "center",
+    padding: 28,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: COLORS.tealBorder,
+    backgroundColor: COLORS.card,
+    shadowColor: COLORS.shadow,
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.07,
+    shadowRadius: 20,
+    elevation: 3,
+  },
+  stateIcon: {
+    width: 64,
+    height: 64,
+    borderRadius: 20,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: COLORS.tealSoft,
+    marginBottom: 16,
   },
   checkingText: {
-    fontSize: 15,
-    color: COLORS.textSecondary,
     marginTop: 12,
+    fontSize: 14.5,
+    color: COLORS.textSecondary,
   },
   lockTitle: {
     fontSize: 22,
-    fontWeight: "700",
+    lineHeight: 28,
+    fontWeight: "800",
     color: COLORS.textPrimary,
-    marginTop: 12,
+    textAlign: "center",
   },
   lockSubtitle: {
-    fontSize: 14,
+    marginTop: 6,
+    fontSize: 14.5,
+    lineHeight: 21,
     color: COLORS.textSecondary,
     textAlign: "center",
-    lineHeight: 20,
-    marginTop: 4,
+  },
+  scrollContent: {
+    flexGrow: 1,
+    alignItems: "center",
+    paddingHorizontal: 20,
+    paddingTop: 22,
+    paddingBottom: 32,
   },
   content: {
-    paddingHorizontal: 24,
-    paddingTop: 24,
-    paddingBottom: 40,
+    width: "100%",
+    maxWidth: 760,
   },
-  title: {
-    fontSize: 20,
-    fontWeight: "600",
-    color: COLORS.textPrimary,
-    marginBottom: 4,
-  },
-  subtitle: {
-    fontSize: 14,
-    color: COLORS.textSecondary,
-    lineHeight: 20,
+  intro: {
     marginBottom: 16,
   },
-  label: {
-    fontSize: 14,
-    fontWeight: "600",
+  title: {
+    fontSize: 26,
+    lineHeight: 32,
+    fontWeight: "800",
+    letterSpacing: -0.5,
     color: COLORS.textPrimary,
+  },
+  subtitle: {
+    marginTop: 6,
+    fontSize: 14.5,
+    lineHeight: 21,
+    color: COLORS.textSecondary,
+  },
+  formCard: {
+    padding: 20,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: COLORS.tealBorder,
+    backgroundColor: COLORS.card,
+    shadowColor: COLORS.shadow,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.06,
+    shadowRadius: 18,
+    elevation: 2,
+  },
+  fieldGroup: {
+    marginBottom: 14,
+  },
+  label: {
     marginBottom: 6,
-    marginTop: 10,
+    fontSize: 13,
+    fontWeight: "700",
+    color: COLORS.textPrimary,
   },
   input: {
-    backgroundColor: COLORS.card,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: COLORS.border,
+    minHeight: 52,
     paddingHorizontal: 14,
     paddingVertical: 12,
-    fontSize: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: COLORS.tealBorder,
+    backgroundColor: "#F7FBF9",
+    fontSize: 15,
     color: COLORS.textPrimary,
   },
-  pickerField: {
+  inputFocused: {
+    borderColor: COLORS.teal,
     backgroundColor: COLORS.card,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: COLORS.border,
+    shadowColor: COLORS.teal,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.08,
+    shadowRadius: 10,
+  },
+  pickerField: {
+    minHeight: 52,
     paddingHorizontal: 14,
     paddingVertical: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: COLORS.tealBorder,
+    backgroundColor: "#F7FBF9",
     flexDirection: "row",
     alignItems: "center",
   },
   pickerFieldPressed: {
-    backgroundColor: COLORS.surface,
+    backgroundColor: COLORS.tealSoft,
   },
   pickerValue: {
     flex: 1,
+    minWidth: 0,
+    marginHorizontal: 10,
     fontSize: 15,
     fontWeight: "500",
     color: COLORS.textPrimary,
-    marginHorizontal: 10,
   },
   chipRow: {
     flexDirection: "row",
-    marginTop: 8,
+    flexWrap: "wrap",
+    gap: 8,
+    marginTop: 2,
   },
   chip: {
-    backgroundColor: COLORS.surface,
-    borderRadius: 999,
     paddingHorizontal: 14,
-    paddingVertical: 7,
-    marginRight: 8,
+    paddingVertical: 8,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: COLORS.tealBorder,
+    backgroundColor: COLORS.tealSoft,
+  },
+  chipPressed: {
+    backgroundColor: "#CDEEE2",
   },
   chipText: {
     fontSize: 13,
-    fontWeight: "600",
-    color: COLORS.primary,
+    fontWeight: "700",
+    color: COLORS.teal,
   },
   hint: {
+    marginTop: 8,
     fontSize: 12,
+    lineHeight: 17,
     color: COLORS.textSecondary,
-    marginTop: 6,
+  },
+  messageBox: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 8,
+    marginTop: 12,
+    padding: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: COLORS.tealBorder,
+    backgroundColor: "#F7FBF9",
+  },
+  message: {
+    flex: 1,
+    minWidth: 0,
+    fontSize: 13,
+    lineHeight: 19,
+    color: COLORS.textPrimary,
+  },
+  submit: {
+    marginTop: 2,
   },
   pickerContainer: {
     marginTop: 12,
     alignItems: "center",
   },
-  message: {
-    fontSize: 14,
-    color: COLORS.primary,
-    textAlign: "center",
-    marginTop: 12,
-  },
   resultCard: {
-    backgroundColor: COLORS.card,
-    borderRadius: 10,
+    marginTop: 18,
+    padding: 20,
+    borderRadius: 20,
     borderWidth: 1,
-    borderColor: COLORS.border,
-    padding: 16,
-    marginTop: 20,
+    borderColor: COLORS.tealBorder,
+    backgroundColor: COLORS.card,
     alignItems: "center",
+    shadowColor: COLORS.shadow,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.06,
+    shadowRadius: 18,
+    elevation: 2,
   },
   resultTitle: {
-    fontSize: 15,
-    fontWeight: "600",
+    marginBottom: 14,
+    fontSize: 15.5,
+    lineHeight: 22,
+    fontWeight: "700",
     color: COLORS.textPrimary,
     textAlign: "center",
-    marginBottom: 12,
   },
   qrBox: {
+    marginBottom: 14,
+    padding: 14,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: COLORS.tealBorder,
     backgroundColor: COLORS.card,
-    padding: 12,
-    borderRadius: 10,
-    marginBottom: 12,
   },
   payloadText: {
-    fontSize: 12,
+    width: "100%",
+    paddingHorizontal: 10,
+    paddingVertical: 10,
+    borderRadius: 10,
+    backgroundColor: "#F7FBF9",
+    fontSize: 11.5,
+    lineHeight: 16,
     color: COLORS.textSecondary,
     textAlign: "center",
-    lineHeight: 16,
+  },
+  webPointer: {
+    cursor: "pointer",
   },
 });

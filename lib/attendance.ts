@@ -1,4 +1,3 @@
-import { getEventByCode } from "./events";
 import { parseQRPayload } from "./qr";
 import { supabase } from "./supabase";
 
@@ -16,9 +15,23 @@ export type RegisterResult = {
   details?: string;
 };
 
+type RegisterAttendanceRpcResult = {
+  success: boolean;
+  message: string;
+  event_title?: string | null;
+};
+
+/**
+ * Record attendance through the server-side validation function.
+ *
+ * The database checks the signed event token, the event time window, the
+ * student's active account, and the unique (student, event) constraint. The
+ * student identity always comes from the authenticated session, never from the
+ * QR payload.
+ */
 export async function registerAttendance(
   rawPayload: string,
-  studentId: string,
+  _studentId: string,
 ): Promise<RegisterResult> {
   const parsed = parseQRPayload(rawPayload);
   if (!parsed.ok) {
@@ -26,98 +39,29 @@ export async function registerAttendance(
   }
   const payload = parsed.payload;
 
-  const now = Date.now();
-  const start = payload.start ? new Date(payload.start).getTime() : null;
-  const end = payload.end ? new Date(payload.end).getTime() : null;
-  const GRACE_MS = 24 * 60 * 60 * 1000;
+  const { data, error } = await supabase.rpc("register_attendance_qr", {
+    p_event_code: payload.event,
+    p_token: payload.token ?? null,
+  });
 
-  if (start && now < start) {
-    return { success: false, message: "Event has not started yet." };
-  }
-  if (end && now > end + GRACE_MS) {
-    return {
-      success: false,
-      message: "Event has already ended.",
-      details: `DB: ${process.env.EXPO_PUBLIC_SUPABASE_URL ?? "unknown"}`,
-    };
+  if (error) {
+    const message =
+      error.code === "42883"
+        ? "Attendance validation is not set up yet. Ask an administrator to run supabase/admin_setup.sql."
+        : error.message || "Could not record attendance.";
+    return { success: false, message };
   }
 
-  const title = payload.title ?? payload.event;
-
-  const UUID_RE =
-    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-  let studentIdFinal = studentId;
-  if (!UUID_RE.test(studentId)) {
-    const {
-      data: { user: authUser },
-    } = await supabase.auth.getUser();
-    studentIdFinal = authUser?.id ?? studentId;
+  const result = data as RegisterAttendanceRpcResult | null;
+  if (!result) {
+    return { success: false, message: "Could not record attendance." };
   }
-
-  let event: { id: string; title: string } | null = null;
-
-  const foundEvent = await getEventByCode(payload.event);
-  if (foundEvent) {
-    event = foundEvent;
-  } else {
-    const { data: newEvent, error: insertError } = await supabase
-      .from("events")
-      .insert([
-        {
-          event_code: payload.event,
-          title,
-          start_time: payload.start ?? null,
-          end_time: payload.end ?? null,
-        },
-      ])
-      .select("id, title")
-      .single();
-
-    if (insertError) {
-      return { success: false, message: "Could not create event." };
-    }
-    event = newEvent;
-  }
-
-  const { error: attError } = await supabase.from("attendance").insert([
-    {
-      student_id: studentIdFinal,
-      event_id: event.id,
-    },
-  ]);
-
-  const db = process.env.EXPO_PUBLIC_SUPABASE_URL ?? "unknown";
-
-  if (attError) {
-    if (attError.code === "23505") {
-      return {
-        success: false,
-        message: "Already registered for this event.",
-        eventTitle: event.title,
-        details: `DB: ${db}`,
-      };
-    }
-    return {
-      success: false,
-      message: attError.message,
-      details: `DB error ${attError.code ?? "?"}: ${db}`,
-    };
-  }
-
-  const { data: verifyRow } = await supabase
-    .from("attendance")
-    .select("id")
-    .eq("student_id", studentIdFinal)
-    .eq("event_id", event.id)
-    .maybeSingle();
 
   return {
-    success: true,
-    message: "Attendance recorded!",
-    eventTitle: event.title,
-    details: verifyRow
-      ? `row ${verifyRow.id} @ ${db}`
-      : `written but not readable (RLS) @ ${db}`,
+    success: Boolean(result.success),
+    message: result.message || "Could not record attendance.",
+    eventTitle: result.event_title ?? undefined,
+    details: "Validated securely on the server.",
   };
 }
 
